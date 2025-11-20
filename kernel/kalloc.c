@@ -87,13 +87,6 @@ pa2page(uint64 pa)
   return &pages[(pa - (uint64)end) / PGSIZE];
 }
 
-// Helper function to get physical address from page struct
-static uint64
-page2pa(struct page *p)
-{
-  return (uint64)end + ((p - pages) * PGSIZE);
-}
-
 // Add page to LRU list (circular doubly linked list)
 void
 lru_add(struct page *pg)
@@ -157,15 +150,6 @@ lru_move_to_tail_locked(struct page *pg)
   pg->prev = page_lru_head->prev;
   page_lru_head->prev->next = pg;
   page_lru_head->prev = pg;
-}
-
-// Move page to tail of LRU list
-static void
-lru_move_to_tail(struct page *pg)
-{
-  acquire(&kmem.lock);
-  lru_move_to_tail_locked(pg);
-  release(&kmem.lock);
 }
 
 // Find free swap slot
