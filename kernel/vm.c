@@ -162,7 +162,18 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
       return -1;
     if(*pte & PTE_V)
       panic("mappages: remap");
-    *pte = PA2PTE(pa) | perm | PTE_V;
+    *pte = PA2PTE(pa) | perm | PTE_V | PTE_A;
+    
+    // Add user pages to LRU list
+    if(perm & PTE_U) {
+      struct page *pg = pa2page(pa);
+      if(pg) {
+        pg->pagetable = pagetable;
+        pg->vaddr = (char*)a;
+        lru_add(pg);
+      }
+    }
+    
     if(a == last)
       break;
     a += PGSIZE;
@@ -186,12 +197,29 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
     if((pte = walk(pagetable, a, 0)) == 0)
       panic("uvmunmap: walk");
-    if((*pte & PTE_V) == 0)
+    if((*pte & PTE_V) == 0) {
+      // Page might be swapped out - check if it's a swap entry
+      uint64 swap_offset = (*pte) >> 10;
+      if(swap_offset > 0 && swap_offset < SWAPMAX / (PGSIZE / BSIZE)) {
+        // Free swap slot
+        swap_free((int)swap_offset);
+        *pte = 0;
+        continue;
+      }
       panic("uvmunmap: not mapped");
+    }
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
       uint64 pa = PTE2PA(*pte);
+      
+      // Remove from LRU list if it's a user page
+      if(*pte & PTE_U) {
+        struct page *pg = pa2page(pa);
+        if(pg)
+          lru_remove(pg);
+      }
+      
       kfree((void*)pa);
     }
     *pte = 0;
@@ -312,7 +340,7 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 int
 uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 {
-  pte_t *pte;
+  pte_t *pte, *newpte;
   uint64 pa, i;
   uint flags;
   char *mem;
@@ -320,10 +348,18 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
-    if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
-    pa = PTE2PA(*pte);
+    
     flags = PTE_FLAGS(*pte);
+    
+    if((*pte & PTE_V) == 0) {
+      // Page is swapped out - swap it in first
+      if(swapin(old, i, pte) < 0)
+        panic("uvmcopy: swapin failed");
+      pa = PTE2PA(*pte);
+    } else {
+      pa = PTE2PA(*pte);
+    }
+    
     if((mem = kalloc()) == 0)
       goto err;
     memmove(mem, (char*)pa, PGSIZE);
@@ -366,9 +402,13 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     if(va0 >= MAXVA)
       return -1;
     pte = walk(pagetable, va0, 0);
-    if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0 ||
-       (*pte & PTE_W) == 0)
+    if(pte == 0 || (*pte & PTE_U) == 0 || (*pte & PTE_W) == 0)
       return -1;
+    if((*pte & PTE_V) == 0) {
+      // Page is swapped out - swap it in
+      if(swapin(pagetable, va0, pte) < 0)
+        return -1;
+    }
     pa0 = PTE2PA(*pte);
     n = PGSIZE - (dstva - va0);
     if(n > len)
@@ -389,12 +429,19 @@ int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
   uint64 n, va0, pa0;
+  pte_t *pte;
 
   while(len > 0){
     va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
+    pte = walk(pagetable, va0, 0);
+    if(pte == 0 || (*pte & PTE_U) == 0)
       return -1;
+    if((*pte & PTE_V) == 0) {
+      // Page is swapped out - swap it in
+      if(swapin(pagetable, va0, pte) < 0)
+        return -1;
+    }
+    pa0 = PTE2PA(*pte);
     n = PGSIZE - (srcva - va0);
     if(n > len)
       n = len;
@@ -419,9 +466,15 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 
   while(got_null == 0 && max > 0){
     va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
+    pte_t *pte = walk(pagetable, va0, 0);
+    if(pte == 0 || (*pte & PTE_U) == 0)
       return -1;
+    if((*pte & PTE_V) == 0) {
+      // Page is swapped out - swap it in
+      if(swapin(pagetable, va0, pte) < 0)
+        return -1;
+    }
+    pa0 = PTE2PA(*pte);
     n = PGSIZE - (srcva - va0);
     if(n > max)
       n = max;

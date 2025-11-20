@@ -65,6 +65,30 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if(r_scause() == 12 || r_scause() == 13 || r_scause() == 15){
+    // Page fault: instruction (12), load (13), store (15)
+    uint64 va = r_stval();
+    pte_t *pte;
+    
+    if(va >= p->sz || va < 0) {
+      printf("usertrap(): page fault: invalid address 0x%lx pid=%d\n", va, p->pid);
+      setkilled(p);
+    } else {
+      pte = walk(p->pagetable, va, 0);
+      if(pte == 0) {
+        printf("usertrap(): page fault: walk failed 0x%lx pid=%d\n", va, p->pid);
+        setkilled(p);
+      } else if((*pte & PTE_V) == 0) {
+        // Page is swapped out - swap it in
+        if(swapin(p->pagetable, va, pte) < 0) {
+          printf("usertrap(): page fault: swapin failed 0x%lx pid=%d\n", va, p->pid);
+          setkilled(p);
+        }
+      } else {
+        printf("usertrap(): page fault: unexpected 0x%lx pid=%d\n", va, p->pid);
+        setkilled(p);
+      }
+    }
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {

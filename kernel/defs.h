@@ -66,6 +66,11 @@ void            ramdiskrw(struct buf*);
 void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
+int             swapin(pagetable_t, uint64, pte_t*);
+struct page*    pa2page(uint64);
+void            lru_add(struct page*);
+void            lru_remove(struct page*);
+void            swap_free(int);
 
 // log.c
 void            initlog(int, struct superblock*);
