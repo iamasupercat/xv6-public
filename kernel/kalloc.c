@@ -49,18 +49,15 @@ kinit()
   
   // Now allocate physical page(s) for swap bitmap
   // Calculate required bytes: (SWAP_PAGES + 7) / 8
-  int nbytes = (SWAP_PAGES + 7) / 8;
-  int npages = (nbytes + PGSIZE - 1) / PGSIZE;
-  
+  // Currently 1 page is sufficient (875 bytes needed for 7000 swap pages)
   // Allocate first page (now safe since free-list is populated)
   swap_bitmap = (uint8*)kalloc();
   if(swap_bitmap == 0)
     panic("kinit: failed to allocate swap bitmap");
   memset(swap_bitmap, 0, PGSIZE);
   
-  // Note: If npages > 1, we would need to allocate additional pages
-  // and manage them. Currently 1 page is sufficient (875 bytes needed).
-  // This bitmap page should never be freed (permanent allocation).
+  // Note: This bitmap page should never be freed (permanent allocation).
+  // If more pages are needed in the future, calculate: npages = (nbytes + PGSIZE - 1) / PGSIZE
 }
 
 void
