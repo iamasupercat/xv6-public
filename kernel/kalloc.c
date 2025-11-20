@@ -31,8 +31,9 @@ int num_free_pages;
 int num_lru_pages;
 
 // Swap bitmap: track which swap slots are in use
+// Use 1 physical page for the bitmap
 #define SWAP_PAGES (SWAPMAX / (PGSIZE / BSIZE))
-uint8 swap_bitmap[SWAP_PAGES / 8 + 1];
+uint8 *swap_bitmap;  // Points to a physical page allocated in kinit()
 struct spinlock swap_lock;
 
 void
@@ -42,7 +43,21 @@ kinit()
   initlock(&swap_lock, "swap");
   page_lru_head = 0;
   num_lru_pages = 0;
-  memset(swap_bitmap, 0, sizeof(swap_bitmap));
+  
+  // Allocate physical page(s) for swap bitmap
+  // Calculate required bytes: (SWAP_PAGES + 7) / 8
+  int nbytes = (SWAP_PAGES + 7) / 8;
+  int npages = (nbytes + PGSIZE - 1) / PGSIZE;
+  
+  // Allocate first page
+  swap_bitmap = (uint8*)kalloc();
+  if(swap_bitmap == 0)
+    panic("kinit: failed to allocate swap bitmap");
+  memset(swap_bitmap, 0, PGSIZE);
+  
+  // Note: If npages > 1, we would need to allocate additional pages
+  // and manage them. Currently 1 page is sufficient (875 bytes needed).
+  
   freerange(end, (void*)PHYSTOP);
 }
 
