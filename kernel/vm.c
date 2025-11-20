@@ -199,12 +199,16 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       panic("uvmunmap: walk");
     if((*pte & PTE_V) == 0) {
       // Page might be swapped out - check if it's a swap entry
-      uint64 swap_offset = (*pte) >> 10;
-      if(swap_offset > 0 && swap_offset < SWAPMAX / (PGSIZE / BSIZE)) {
-        // Free swap slot
-        swap_free((int)swap_offset);
-        *pte = 0;
-        continue;
+      // Decode: stored = swap_blkno + 1, so swap_blkno = stored - 1
+      uint64 stored = (*pte) >> 10;
+      if(stored != 0) {
+        int swap_blkno = (int)(stored - 1);
+        if(swap_blkno >= 0 && swap_blkno < SWAPMAX / (PGSIZE / BSIZE)) {
+          // Free swap slot
+          swap_free(swap_blkno);
+          *pte = 0;
+          continue;
+        }
       }
       panic("uvmunmap: not mapped");
     }

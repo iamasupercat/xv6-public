@@ -278,7 +278,8 @@ swapout(void)
   swapwrite(pa, swap_blkno);
   
   // Update PTE: clear PTE_V, store swap offset in PPN
-  *pte = (swap_blkno << 10) | (flags & ~PTE_V);
+  // Encode as (swap_blkno + 1) to distinguish from PTE==0 (unmapped)
+  *pte = ((uint64)(swap_blkno + 1) << 10) | (flags & ~PTE_V);
   
   // Remove from LRU list
   lru_remove(victim);
@@ -293,15 +294,18 @@ swapout(void)
 int
 swapin(pagetable_t pagetable, uint64 va, pte_t *pte)
 {
-  uint64 swap_offset;
+  uint64 stored;
   uint64 pa;
   int swap_blkno;
   uint flags;
   struct page *pg;
   
   // Extract swap offset from PTE (stored in PPN field)
-  swap_offset = (*pte) >> 10;
-  swap_blkno = (int)swap_offset;
+  // Decode: stored = swap_blkno + 1, so swap_blkno = stored - 1
+  stored = (*pte) >> 10;
+  if(stored == 0)
+    return -1;  // Not a swap entry (PTE==0 means unmapped)
+  swap_blkno = (int)(stored - 1);
   
   if(swap_blkno < 0 || swap_blkno >= SWAP_PAGES)
     return -1;
