@@ -353,7 +353,15 @@ kalloc(void)
   // If no free page, try swap-out
   if(r == 0) {
     if(swapout() < 0) {
-      printf("kalloc: out of memory\n");
+      // Out of memory: kill current process if in process context
+      struct proc *p = myproc();
+      if(p) {
+        printf("kalloc: out of memory, killing process %d\n", p->pid);
+        setkilled(p);
+      } else {
+        // Not in process context, panic
+        panic("kalloc: out of memory");
+      }
       return 0;
     }
     // Try again after swap-out
