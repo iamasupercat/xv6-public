@@ -9,6 +9,7 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "proc.h"
 
 void freerange(void *pa_start, void *pa_end);
 
